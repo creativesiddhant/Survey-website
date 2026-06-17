@@ -256,3 +256,125 @@ export const subscribeToRealtimeChanges = (onInsert: (payload: any) => void) => 
   return channel;
 };
 
+export interface SystemSettings {
+  duplicateBlock: boolean;
+  submissionLimit: number;
+  exportPref: string;
+}
+
+/**
+ * Fetch global system settings from Supabase, falling back to localStorage or default options.
+ */
+export const fetchSystemSettings = async (): Promise<SystemSettings> => {
+  const defaultSettings: SystemSettings = {
+    duplicateBlock: false, // Default to false for unlimited submissions by default
+    submissionLimit: 999,  // Default to 999 for unlimited submissions by default
+    exportPref: 'csv'
+  };
+
+  if (!isSupabaseConfigured()) {
+    const localDup = localStorage.getItem('settings_duplicate_block');
+    const dup = localDup !== null ? localDup === 'true' : false;
+    const localLimit = localStorage.getItem('settings_submission_limit');
+    const limit = localLimit !== null ? Number(localLimit) : 999;
+    const exportPref = localStorage.getItem('settings_export_pref') || 'csv';
+    return { duplicateBlock: dup, submissionLimit: limit, exportPref };
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('settings')
+      .select('key, value');
+
+    if (error) {
+      console.error('Error fetching settings from DB:', error.message);
+      const localDup = localStorage.getItem('settings_duplicate_block');
+      const dup = localDup !== null ? localDup === 'true' : false;
+      const localLimit = localStorage.getItem('settings_submission_limit');
+      const limit = localLimit !== null ? Number(localLimit) : 999;
+      const exportPref = localStorage.getItem('settings_export_pref') || 'csv';
+      return { duplicateBlock: dup, submissionLimit: limit, exportPref };
+    }
+
+    const settingsMap: Partial<SystemSettings> = {};
+    data?.forEach(row => {
+      if (row.key === 'settings_duplicate_block') {
+        settingsMap.duplicateBlock = row.value?.value;
+      } else if (row.key === 'settings_submission_limit') {
+        settingsMap.submissionLimit = Number(row.value?.value);
+      } else if (row.key === 'settings_export_pref') {
+        settingsMap.exportPref = row.value?.value;
+      }
+    });
+
+    return {
+      duplicateBlock: settingsMap.duplicateBlock !== undefined ? settingsMap.duplicateBlock : false,
+      submissionLimit: settingsMap.submissionLimit !== undefined ? settingsMap.submissionLimit : 999,
+      exportPref: settingsMap.exportPref || 'csv'
+    };
+  } catch (err) {
+    console.error('Failed to fetch settings from DB:', err);
+    return defaultSettings;
+  }
+};
+
+/**
+ * Save settings globally in Supabase and locally in localStorage.
+ */
+export const saveSystemSettings = async (settings: SystemSettings): Promise<boolean> => {
+  localStorage.setItem('settings_duplicate_block', String(settings.duplicateBlock));
+  localStorage.setItem('settings_submission_limit', String(settings.submissionLimit));
+  localStorage.setItem('settings_export_pref', settings.exportPref);
+
+  if (!isSupabaseConfigured()) return true;
+
+  try {
+    const rows = [
+      { key: 'settings_duplicate_block', value: { value: settings.duplicateBlock } },
+      { key: 'settings_submission_limit', value: { value: settings.submissionLimit } },
+      { key: 'settings_export_pref', value: { value: settings.exportPref } }
+    ];
+
+    const { error } = await supabase
+      .from('settings')
+      .upsert(rows, { onConflict: 'key' });
+
+    if (error) {
+      console.error('Error saving settings to DB:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('Failed to save settings to DB:', err);
+    return false;
+  }
+};
+
+/**
+ * Get total submission count across all visitor sessions matching visitorId OR fingerprint.
+ */
+export const getSubmissionCount = async (
+  visitorId: string,
+  fingerprint: string
+): Promise<number> => {
+  if (!isSupabaseConfigured()) return 0;
+
+  try {
+    const { data, error } = await supabase
+      .from('visitor_sessions')
+      .select('submission_count')
+      .or(`visitor_id.eq.${visitorId},fingerprint.eq.${fingerprint}`);
+
+    if (error) {
+      console.error('Error fetching submission count:', error.message);
+      return 0;
+    }
+
+    const total = data ? data.reduce((acc, curr) => acc + (curr.submission_count || 0), 0) : 0;
+    return total;
+  } catch (err) {
+    console.error('Failed to get submission count from DB:', err);
+    return 0;
+  }
+};
+

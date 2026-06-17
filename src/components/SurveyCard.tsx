@@ -9,7 +9,7 @@ import { ArrowLeft, ArrowRight, CheckCircle, Search, ChevronDown } from 'lucide-
 import { getOrCreateVisitorId, getBrowserFingerprint } from '../utils/visitor';
 import { getDeviceType, getBrowserName } from '../utils/device';
 import { validateStep } from '../validation/survey';
-import { upsertVisitorSession, checkExistingSubmission, submitSurvey } from '../services/supabaseService';
+import { upsertVisitorSession, submitSurvey, fetchSystemSettings, getSubmissionCount } from '../services/supabaseService';
 import type { SurveyPayload } from '../services/supabaseService';
 
 // Indian States data
@@ -115,18 +115,26 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
 
       setStartTime(Date.now());
 
-      // Check local storage block
-      const localCompleted = false; // localStorage.getItem('survey_completed') === 'true';
-      if (localCompleted) {
-        setHasSubmitted(true);
+      // Fetch system settings
+      const settings = await fetchSystemSettings();
+
+      // If duplicate checking is disabled or limit is set to unlimited, bypass block
+      if (!settings.duplicateBlock || settings.submissionLimit >= 999) {
+        setHasSubmitted(false);
+        if (isSupabaseConfigured()) {
+          const devType = getDeviceType();
+          const browser = getBrowserName();
+          await upsertVisitorSession(vid, fp, devType, browser, answers.city);
+        }
         return;
       }
 
-      // Check DB block
+      // Check DB block first (more accurate)
       if (isSupabaseConfigured()) {
-        const isDuplicate = await checkExistingSubmission(vid, fp);
-        if (isDuplicate) {
+        const count = await getSubmissionCount(vid, fp);
+        if (count >= settings.submissionLimit) {
           localStorage.setItem('survey_completed', 'true');
+          localStorage.setItem('survey_local_submission_count', String(count));
           setHasSubmitted(true);
           return;
         }
@@ -134,6 +142,13 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
         const devType = getDeviceType();
         const browser = getBrowserName();
         await upsertVisitorSession(vid, fp, devType, browser, answers.city);
+      } else {
+        // Fallback to local storage count
+        const localCount = Number(localStorage.getItem('survey_local_submission_count') || '0');
+        if (localCount >= settings.submissionLimit) {
+          setHasSubmitted(true);
+          return;
+        }
       }
     };
 
@@ -226,6 +241,8 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
         console.warn('Supabase not configured. Simulating response persistence locally.');
         await new Promise(resolve => setTimeout(resolve, 1200));
       }
+      const localCount = Number(localStorage.getItem('survey_local_submission_count') || '0');
+      localStorage.setItem('survey_local_submission_count', String(localCount + 1));
       setIsLoading(false);
       changeStep(9);
     } catch (err: any) {

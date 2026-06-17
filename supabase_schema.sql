@@ -84,12 +84,19 @@ alter table public.settings enable row level security;
 -- 4. Define Row Level Security Policies
 ---------------------------------------------------------
 
--- Policy for settings (Allow public read of settings)
+-- Policy for settings (Allow public read of settings, and authenticated full access)
 create policy "Allow public SELECT on settings" 
 on public.settings 
 for select 
 to public 
 using (true);
+
+create policy "Allow authenticated ALL on settings" 
+on public.settings 
+for all 
+to authenticated 
+using (true)
+with check (true);
 
 -- Policies for visitor_sessions (Allow public insert, select, and update based on visitor_id matching)
 create policy "Allow public INSERT on visitor_sessions" 

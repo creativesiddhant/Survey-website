@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Paintbrush, FileSpreadsheet } from 'lucide-react';
 import { Button } from './Button';
+import { fetchSystemSettings, saveSystemSettings } from '../services/supabaseService';
 
 export const AdminSettings: React.FC = () => {
   // Theme state
@@ -11,20 +12,20 @@ export const AdminSettings: React.FC = () => {
   const [submissionLimit, setSubmissionLimit] = useState(1);
   const [exportPref, setExportPref] = useState('csv');
   const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  // Load initial settings from localStorage
+  // Load initial settings
   useEffect(() => {
-    const savedTheme = localStorage.getItem('theme_preference') as 'light' | 'dark' | 'system' || 'system';
-    setThemeMode(savedTheme);
+    const loadSettings = async () => {
+      const savedTheme = localStorage.getItem('theme_preference') as 'light' | 'dark' | 'system' || 'system';
+      setThemeMode(savedTheme);
 
-    const savedDup = localStorage.getItem('settings_duplicate_block') !== 'false'; // defaults to true
-    setDupBlock(savedDup);
-
-    const savedLimit = Number(localStorage.getItem('settings_submission_limit') || '1');
-    setSubmissionLimit(savedLimit);
-
-    const savedExport = localStorage.getItem('settings_export_pref') || 'csv';
-    setExportPref(savedExport);
+      const sysSettings = await fetchSystemSettings();
+      setDupBlock(sysSettings.duplicateBlock);
+      setSubmissionLimit(sysSettings.submissionLimit);
+      setExportPref(sysSettings.exportPref);
+    };
+    loadSettings();
   }, []);
 
   const handleApplyTheme = (mode: 'light' | 'dark' | 'system') => {
@@ -48,11 +49,14 @@ export const AdminSettings: React.FC = () => {
     }
   };
 
-  const handleSaveSettings = () => {
-    localStorage.setItem('settings_duplicate_block', String(dupBlock));
-    localStorage.setItem('settings_submission_limit', String(submissionLimit));
-    localStorage.setItem('settings_export_pref', exportPref);
-
+  const handleSaveSettings = async () => {
+    setIsSaving(true);
+    await saveSystemSettings({
+      duplicateBlock: dupBlock,
+      submissionLimit,
+      exportPref
+    });
+    setIsSaving(false);
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 2500);
   };
@@ -181,10 +185,11 @@ export const AdminSettings: React.FC = () => {
           )}
           <Button
             variant="primary"
+            disabled={isSaving}
             onClick={handleSaveSettings}
             style={{ padding: '0.65rem 1.5rem', borderRadius: '12px', marginLeft: 'auto' }}
           >
-            Save Panel Settings
+            {isSaving ? 'Saving Settings...' : 'Save Panel Settings'}
           </Button>
         </div>
 
