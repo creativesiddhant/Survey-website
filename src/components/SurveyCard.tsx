@@ -168,6 +168,13 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
   // Handle slide transitions
   const changeStep = (nextStep: number) => {
     setSlideDirection(nextStep > step ? 'left' : 'right');
+    
+    // Smoothly scroll back to the top of the survey component to prevent viewport jumping when content height changes
+    const surveySection = document.getElementById('survey');
+    if (surveySection) {
+      surveySection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
     setTimeout(() => {
       setStep(nextStep);
       setSlideDirection('in');
@@ -360,6 +367,7 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '0.5rem',
+                    backgroundColor: 'var(--bg-card)',
                   }}
                 >
                   {/* Search Bar inside Dropdown */}
@@ -951,7 +959,7 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
               ranking: BUSINESS_OPTIONS.map(b => ({ id: b.id, title: b.title, emoji: b.emoji })),
               suggestions: ''
             });
-            setStep(1);
+            changeStep(1);
           }}
           style={{ marginTop: '1.5rem' }}
         >
@@ -1006,6 +1014,8 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
                 : 'translateX(0)',
             transition: 'opacity 0.2s ease, transform 0.2s ease',
             marginBottom: '2.5rem',
+            position: 'relative',
+            zIndex: 10,
           }}
         >
           {renderQuestion()}
