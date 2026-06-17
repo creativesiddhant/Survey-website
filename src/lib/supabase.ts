@@ -18,6 +18,6 @@ export const isSupabaseConfigured = (): boolean => {
 
 // Safety initialization for local fallback or build-time compilation
 const targetUrl = isSupabaseConfigured() ? supabaseUrl : 'https://cljoxbeopvllcndlbicb.supabase.co';
-const targetKey = isSupabaseConfigured() ? supabaseAnonKey : 'placeholder-anon-key-prevent-crash';
+const targetKey = isSupabaseConfigured() ? supabaseAnonKey : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNsam94YmVvcHZsbGNuZGxiaWNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE2ODA2MzYsImV4cCI6MjA5NzI1NjYzNn0.DP6qlUMZAfjVqng2JOMSrE5c2Ecz0riqiHbG_BSPciY';
 
 export const supabase = createClient(targetUrl, targetKey);
