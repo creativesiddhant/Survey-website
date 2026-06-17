@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { ProgressBar } from './ProgressBar';
 import { Button } from './Button';
-import { submitToSupabase, isSupabaseConfigured } from '../lib/supabase';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { BusinessCard, FoxnutsIllustration, CoffeeIllustration, SpicesIllustration, WaterIllustration, StationeryIllustration, BiodegradableIllustration } from './BusinessCard';
 import type { BusinessOption } from './BusinessCard';
-
 import { DragRank } from './DragRank';
 import { ArrowLeft, ArrowRight, CheckCircle, Search, ChevronDown } from 'lucide-react';
+import { getOrCreateVisitorId, getBrowserFingerprint } from '../utils/visitor';
+import { getDeviceType, getBrowserName } from '../utils/device';
+import { validateStep } from '../validation/survey';
+import { upsertVisitorSession, checkExistingSubmission, submitSurvey } from '../services/supabaseService';
+import type { SurveyPayload } from '../services/supabaseService';
 
 // Indian States data
 const INDIAN_STATES = [
@@ -91,6 +95,60 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
   // Confetti particles state
   const [confetti, setConfetti] = useState<{ id: number; left: number; delay: number; color: string; duration: number }[]>([]);
 
+  // Supabase states
+  const [visitorId, setVisitorId] = useState<string>('');
+  const [fingerprint, setFingerprint] = useState<string>('');
+  const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [validationError, setValidationError] = useState<string>('');
+  const [submitError, setSubmitError] = useState<string>('');
+  const [startTime, setStartTime] = useState<number | null>(null);
+
+  // Initialize Session
+  useEffect(() => {
+    const initSession = async () => {
+      const vid = getOrCreateVisitorId();
+      setVisitorId(vid);
+
+      const fp = getBrowserFingerprint();
+      setFingerprint(fp);
+
+      setStartTime(Date.now());
+
+      // Check local storage block
+      const localCompleted = localStorage.getItem('survey_completed') === 'true';
+      if (localCompleted) {
+        setHasSubmitted(true);
+        return;
+      }
+
+      // Check DB block
+      if (isSupabaseConfigured()) {
+        const isDuplicate = await checkExistingSubmission(vid, fp);
+        if (isDuplicate) {
+          localStorage.setItem('survey_completed', 'true');
+          setHasSubmitted(true);
+          return;
+        }
+
+        const devType = getDeviceType();
+        const browser = getBrowserName();
+        await upsertVisitorSession(vid, fp, devType, browser, answers.city);
+      }
+    };
+
+    initSession();
+  }, []);
+
+  // Update session record when city is filled to capture demographics early
+  useEffect(() => {
+    if (answers.city.trim().length >= 2 && visitorId && isSupabaseConfigured()) {
+      const devType = getDeviceType();
+      const browser = getBrowserName();
+      upsertVisitorSession(visitorId, fingerprint, devType, browser, answers.city);
+    }
+  }, [answers.city, visitorId]);
+
   // Trigger confetti particle creation on completion
   useEffect(() => {
     if (step === 9) {
@@ -116,46 +174,82 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
     }, 200);
   };
 
+  const handleFormSubmission = async () => {
+    setIsLoading(true);
+    setSubmitError('');
+
+    const duration = startTime ? Math.round((Date.now() - startTime) / 1000) : 0;
+    const devType = getDeviceType();
+    const browser = getBrowserName();
+
+    const answersArray = [
+      { question_number: 1, question: 'Select your age group', answer: answers.ageGroup },
+      { question_number: 2, question: 'Which state do you currently reside in?', answer: answers.state },
+      { question_number: 3, question: 'Which city or town do you live in?', answer: answers.city },
+      { question_number: 4, question: 'What is your current occupation?', answer: answers.occupation },
+      { question_number: 5, question: 'Monthly Household Income Bracket', answer: answers.monthlyIncome },
+      { question_number: 6, question: 'Which business excites you the most?', answer: BUSINESS_OPTIONS.find(b => b.id === answers.excitedBusiness)?.title || answers.excitedBusiness },
+      { question_number: 7, question: 'Rank these business ideas', answer: answers.ranking.map((item, idx) => `#${idx + 1}: ${item.emoji} ${item.title}`).join(', ') },
+      { question_number: 8, question: 'Share your ideas or suggestions', answer: answers.suggestions || 'None' }
+    ];
+
+    const payload: SurveyPayload = {
+      visitorId,
+      fingerprint,
+      ageGroup: answers.ageGroup,
+      state: answers.state,
+      city: answers.city,
+      occupation: answers.occupation,
+      incomeRange: answers.monthlyIncome,
+      businessInterest: BUSINESS_OPTIONS.find(b => b.id === answers.excitedBusiness)?.title || answers.excitedBusiness,
+      businessRanking: answers.ranking.map(item => `${item.emoji} ${item.title}`),
+      suggestions: answers.suggestions,
+      deviceType: devType,
+      browser,
+      completionTime: duration,
+      answers: answersArray
+    };
+
+    try {
+      if (isSupabaseConfigured()) {
+        await submitSurvey(payload);
+        localStorage.setItem('survey_completed', 'true');
+      } else {
+        // Fallback simulation
+        console.warn('Supabase not configured. Simulating response persistence locally.');
+        await new Promise(resolve => setTimeout(resolve, 1200));
+      }
+      setIsLoading(false);
+      changeStep(9);
+    } catch (err: any) {
+      console.error('Submission failed:', err);
+      setIsLoading(false);
+      setSubmitError(err.message || 'Unknown network connectivity issue');
+    }
+  };
+
   const handleNext = async () => {
+    // Perform step validation using friendly inline validation library
+    const validation = validateStep(step, answers);
+    if (!validation.isValid) {
+      setValidationError(validation.message);
+      return;
+    }
+
+    setValidationError('');
+
     if (step < totalSteps) {
       changeStep(step + 1);
     } else {
-      if (isSupabaseConfigured()) {
-        const payload = {
-          age_group: answers.ageGroup,
-          state: answers.state,
-          city: answers.city,
-          occupation: answers.occupation,
-          monthly_income: answers.monthlyIncome,
-          excited_business: answers.excitedBusiness,
-          ranking: answers.ranking.map(item => `${item.emoji} ${item.title}`),
-          suggestions: answers.suggestions
-        };
-        try {
-          await submitToSupabase(payload);
-        } catch (err) {
-          console.error("Error submitting response to Supabase:", err);
-        }
-      }
-      changeStep(9); // Complete
+      await handleFormSubmission();
     }
   };
 
   const handlePrev = () => {
+    setValidationError('');
     if (step > 1) {
       changeStep(step - 1);
     }
-  };
-
-  // Helper validation to activate NEXT button
-  const isNextDisabled = () => {
-    if (step === 1) return !answers.ageGroup;
-    if (step === 2) return !answers.state;
-    if (step === 3) return !answers.city.trim();
-    if (step === 4) return !answers.occupation;
-    if (step === 5) return !answers.monthlyIncome;
-    if (step === 6) return !answers.excitedBusiness;
-    return false;
   };
 
   // Render question content
@@ -583,17 +677,177 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
                 resize: 'vertical',
               }}
               onFocus={(e) => (e.currentTarget.style.borderColor = 'var(--primary)')}
-              onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--border-color)')}
+                onBlur={(e) => (e.currentTarget.style.borderColor = 'var(--border-color)')}
             />
           </div>
         );
-
       default:
         return null;
     }
   };
 
   // Render Completion Screen
+  if (hasSubmitted) {
+    return (
+      <div
+        id="survey-card-root"
+        className="glass-panel"
+        style={{
+          width: '100%',
+          maxWidth: '800px',
+          borderRadius: '24px',
+          padding: '4rem 2rem',
+          textAlign: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '1.5rem',
+          margin: '2rem auto',
+          boxShadow: 'var(--shadow-lg)',
+          minHeight: '400px',
+          backgroundColor: '#fff',
+        }}
+      >
+        <div
+          style={{
+            width: '72px',
+            height: '72px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--primary-light)',
+            color: 'var(--primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '2rem',
+            marginBottom: '0.5rem',
+          }}
+        >
+          ✨
+        </div>
+        <h2 style={{ fontSize: '2.25rem', fontWeight: 800, color: 'var(--text-main)' }}>
+          Response Already Recorded!
+        </h2>
+        <p style={{ color: 'var(--text-body)', fontSize: '1.1rem', maxWidth: '560px', lineHeight: 1.6 }}>
+          Thank you for your enthusiasm! Your responses have already been securely saved in our database.
+          We only allow one submission per participant to ensure accurate market demand statistics.
+        </p>
+        <div style={{ marginTop: '1rem' }}>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Visitor ID: <code style={{ backgroundColor: 'var(--bg-main)', padding: '0.2rem 0.4rem', borderRadius: '4px', fontSize: '0.8rem' }}>{visitorId}</code>
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div
+        id="survey-card-root"
+        className="glass-panel"
+        style={{
+          width: '100%',
+          maxWidth: '840px',
+          borderRadius: '24px',
+          padding: '4rem 2rem',
+          textAlign: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '1.5rem',
+          margin: '2rem auto',
+          boxShadow: 'var(--shadow-lg)',
+          minHeight: '440px',
+          backgroundColor: '#fff',
+        }}
+      >
+        <div
+          style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            border: '4px solid var(--primary-light)',
+            borderTopColor: 'var(--primary)',
+            animation: 'spin 1s linear infinite',
+            marginBottom: '1rem',
+          }}
+        />
+        <h2 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--text-main)' }}>
+          Submitting Your Survey
+        </h2>
+        <p style={{ color: 'var(--text-body)', fontSize: '1rem', maxWidth: '400px', lineHeight: 1.5 }}>
+          Securing your feedback in our database. Please don't close this page.
+        </p>
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  if (submitError) {
+    return (
+      <div
+        id="survey-card-root"
+        className="glass-panel"
+        style={{
+          width: '100%',
+          maxWidth: '840px',
+          borderRadius: '24px',
+          padding: '3.5rem 2rem',
+          textAlign: 'center',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '1.5rem',
+          margin: '2rem auto',
+          boxShadow: 'var(--shadow-lg)',
+          minHeight: '440px',
+          backgroundColor: '#fff',
+        }}
+      >
+        <div
+          style={{
+            width: '72px',
+            height: '72px',
+            borderRadius: '50%',
+            backgroundColor: '#FEF2F2',
+            color: '#EF4444',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '2rem',
+            marginBottom: '0.5rem',
+            border: '1.5px solid #FCA5A5'
+          }}
+        >
+          ⚠️
+        </div>
+        <h2 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-main)' }}>
+          Connection Issue Detected
+        </h2>
+        <p style={{ color: 'var(--text-body)', fontSize: '1.05rem', maxWidth: '500px', lineHeight: 1.6 }}>
+          We had trouble saving your survey responses. Please verify your internet connection.
+          Your answers are safe, and you can retry submitting when ready.
+        </p>
+        <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem' }}>
+          <Button variant="outline" onClick={() => setSubmitError('')}>
+            Back to Edit
+          </Button>
+          <Button variant="primary" onClick={handleFormSubmission}>
+            Retry Submission
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (step === 9) {
     return (
       <div
@@ -639,7 +893,7 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
         </h2>
         
         <p style={{ color: 'var(--text-body)', fontSize: '1.1rem', maxWidth: '560px', lineHeight: 1.6 }}>
-          Your responses have been successfully recorded locally. Your choices will help validate market demand and outline target strategies for future business models.
+          Your responses have been successfully recorded. Your choices will help validate market demand and outline target strategies for future business models.
         </p>
 
         {/* Answer Summary Card */}
@@ -757,6 +1011,29 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
           {renderQuestion()}
         </div>
 
+        {/* Validation Error Banner */}
+        {validationError && (
+          <div
+            className="animate-slide-up"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              backgroundColor: '#FEF2F2',
+              color: '#EF4444',
+              padding: '0.75rem 1rem',
+              borderRadius: '12px',
+              border: '1px solid #FCA5A5',
+              fontSize: '0.875rem',
+              fontWeight: 500,
+              marginBottom: '1.5rem',
+            }}
+          >
+            <span style={{ fontSize: '1rem' }}>⚠️</span>
+            <span>{validationError}</span>
+          </div>
+        )}
+
         {/* Card Footer: Navigation buttons */}
         <div
           style={{
@@ -781,7 +1058,6 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
 
           <Button
             variant="primary"
-            disabled={isNextDisabled()}
             onClick={handleNext}
             icon={step === totalSteps ? undefined : <ArrowRight size={16} />}
             iconPosition="right"
