@@ -116,7 +116,7 @@ export const SurveyCard: React.FC<SurveyCardProps> = ({ onComplete }) => {
       setStartTime(Date.now());
 
       // Check local storage block
-      const localCompleted = localStorage.getItem('survey_completed') === 'true';
+      const localCompleted = false; // localStorage.getItem('survey_completed') === 'true';
       if (localCompleted) {
         setHasSubmitted(true);
         return;
