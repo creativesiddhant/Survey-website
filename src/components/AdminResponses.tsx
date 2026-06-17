@@ -683,14 +683,6 @@ export const AdminResponses: React.FC<AdminResponsesProps> = ({ responses, onRef
       setDownloadMessage('Compiling PDF Business Report...');
 
       setTimeout(() => {
-        const printWindow = window.open('', '_blank');
-        if (!printWindow) {
-          setDownloadingState('failed');
-          setDownloadMessage('Popup blocked! Please allow popups.');
-          setTimeout(() => setDownloadingState('idle'), 3000);
-          return alert('Popups are blocked by your browser. Please allow popups to export PDF.');
-        }
-
         const totalResponses = data.length;
         const topBusiness = getTopItem(data.map(r => r.business_interest));
         const topState = getTopItem(data.map(r => r.state));
@@ -751,7 +743,7 @@ export const AdminResponses: React.FC<AdminResponsesProps> = ({ responses, onRef
           suggestionsHTML = '<p style="font-style: italic; color: #64748b;">No suggestions provided yet.</p>';
         }
 
-        printWindow.document.write(`
+        const reportHTML = `
           <html>
             <head>
               <title>Executive Business Survey Report</title>
@@ -1175,15 +1167,38 @@ export const AdminResponses: React.FC<AdminResponsesProps> = ({ responses, onRef
 
             </body>
           </html>
-        `);
+        `;
 
-        printWindow.document.close();
-        
+        // Create a hidden print iframe to prevent browser popup blockers
+        let iframe = document.getElementById('print-report-iframe') as HTMLIFrameElement | null;
+        if (iframe) {
+          document.body.removeChild(iframe);
+        }
+
+        iframe = document.createElement('iframe');
+        iframe.id = 'print-report-iframe';
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const doc = iframe.contentWindow?.document || iframe.contentDocument;
+        if (!doc) {
+          throw new Error('Failed to access print iframe document context.');
+        }
+
+        doc.write(reportHTML);
+        doc.close();
+
+        // Trigger print on loaded iframe window
         setTimeout(() => {
-          printWindow.focus();
-          printWindow.print();
-          printWindow.close();
-          
+          if (iframe && iframe.contentWindow) {
+            iframe.contentWindow.focus();
+            iframe.contentWindow.print();
+          }
           setDownloadingState('success');
           setDownloadMessage('PDF report compiled successfully!');
           setTimeout(() => setDownloadingState('idle'), 3000);
