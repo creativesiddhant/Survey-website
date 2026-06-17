@@ -127,3 +127,132 @@ export const submitSurvey = async (payload: SurveyPayload): Promise<boolean> => 
     throw err;
   }
 };
+
+/**
+ * Admin Sign In.
+ */
+export const signInAdmin = async (email: string, password: string) => {
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data;
+};
+
+/**
+ * Admin Sign Out.
+ */
+export const signOutAdmin = async () => {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+};
+
+/**
+ * Get current authenticated user session.
+ */
+export const getCurrentUser = async () => {
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if (error) return null;
+  return user;
+};
+
+/**
+ * Reset admin password request.
+ */
+export const resetAdminPassword = async (email: string) => {
+  const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/admin`,
+  });
+  if (error) throw error;
+  return data;
+};
+
+/**
+ * Fetch all survey responses along with their answers.
+ */
+export const fetchAllResponses = async () => {
+  if (!isSupabaseConfigured()) return [];
+  try {
+    const { data, error } = await supabase
+      .from('responses')
+      .select(`
+        *,
+        survey_answers (*)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching responses:', error.message);
+      throw error;
+    }
+    return data || [];
+  } catch (err) {
+    console.error('Failed to retrieve responses:', err);
+    throw err;
+  }
+};
+
+/**
+ * Fetch all visitor sessions.
+ */
+export const fetchAllVisitorSessions = async () => {
+  if (!isSupabaseConfigured()) return [];
+  try {
+    const { data, error } = await supabase
+      .from('visitor_sessions')
+      .select('*')
+      .order('last_visit', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching visitor sessions:', error.message);
+      throw error;
+    }
+    return data || [];
+  } catch (err) {
+    console.error('Failed to retrieve visitor sessions:', err);
+    throw err;
+  }
+};
+
+/**
+ * Delete a survey response (will cascade delete its survey_answers).
+ */
+export const deleteSurveyResponse = async (responseId: string): Promise<boolean> => {
+  if (!isSupabaseConfigured()) return false;
+  try {
+    const { error } = await supabase
+      .from('responses')
+      .delete()
+      .eq('id', responseId);
+
+    if (error) {
+      console.error('Error deleting survey response:', error.message);
+      throw error;
+    }
+    return true;
+  } catch (err) {
+    console.error('Failed to delete response:', err);
+    throw err;
+  }
+};
+
+/**
+ * Subscribe to realtime inserts on survey responses.
+ */
+export const subscribeToRealtimeChanges = (onInsert: (payload: any) => void) => {
+  if (!isSupabaseConfigured()) return null;
+  const channel = supabase
+    .channel('responses-realtime')
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'responses'
+      },
+      (payload) => {
+        onInsert(payload.new);
+      }
+    )
+    .subscribe();
+  return channel;
+};
+
