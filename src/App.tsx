@@ -58,20 +58,29 @@ function App() {
     setCurrentPath(path);
   };
 
-  // Check Auth & Theme on Mount
+  // Check Auth & Theme on Mount and Path changes
   useEffect(() => {
     const initializeApp = async () => {
-      // 1. Theme initialization
-      const savedTheme = localStorage.getItem('theme_preference');
+      // 1. Theme initialization depending on path
       const body = document.body;
-      if (savedTheme === 'dark') {
-        body.classList.add('dark');
-      } else if (savedTheme === 'light') {
-        body.classList.remove('dark');
+      if (currentPath.startsWith('/admin')) {
+        const savedTheme = localStorage.getItem('theme_preference') || 'system';
+        if (savedTheme === 'dark') {
+          body.classList.add('dark');
+        } else if (savedTheme === 'light') {
+          body.classList.remove('dark');
+        } else {
+          // System Theme Default
+          const matchesDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          if (matchesDark) {
+            body.classList.add('dark');
+          } else {
+            body.classList.remove('dark');
+          }
+        }
       } else {
-        // System Theme Default
-        const matchesDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        if (matchesDark) body.classList.add('dark');
+        // Public landing pages must strictly remain in light theme
+        body.classList.remove('dark');
       }
 
       // 2. Auth Session Check
@@ -92,7 +101,7 @@ function App() {
     };
 
     initializeApp();
-  }, []);
+  }, [currentPath]);
 
   // Fetch admin database metrics
   const loadAdminData = async () => {
