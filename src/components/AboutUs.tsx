@@ -13,6 +13,13 @@ export const AboutUs: React.FC = () => {
       avatarIcon: 'finance' as const,
     },
     {
+      name: 'Shilpa Srivastava Malhotra',
+      role: 'Co-Founder & Banking Operations Lead',
+      bio: 'Extensive expertise in retail banking operations, customer relationship management, and financial compliance standards.',
+      skills: ['Retail Banking', 'Operations Management', 'Financial Compliance'],
+      avatarIcon: 'finance' as const,
+    },
+    {
       name: 'Siddhant Saxena',
       role: 'Co-Founder & Product Lead',
       bio: 'Expert digital product developer and freelance website designer specializing in UX architecture, conversion psychology, and interface design.',
@@ -76,7 +83,7 @@ export const AboutUs: React.FC = () => {
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
             gap: '2rem',
-            maxWidth: '900px',
+            maxWidth: '1100px',
             marginLeft: 'auto',
             marginRight: 'auto',
             marginBottom: '4rem',
